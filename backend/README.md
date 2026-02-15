@@ -1,5 +1,15 @@
-# Backend
+# Backend (Engine 1 MVP)
 
-FastAPI + Neo4j integration layer for Project Rhizome.
+FastAPI backend for Project Rhizome Engine 1 using an in-memory graph store.
 
-Status: placeholder (bootstrapping repo structure).
+## Scope
+
+- FastAPI only
+- In-memory graph storage (no Neo4j yet)
+- MWI pilot seed data included
+- Snapshot neighborhood filtering by year
+
+## Run locally
+
+```bash
+python -m venv .venv
