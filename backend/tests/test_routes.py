@@ -22,7 +22,7 @@ def test_create_node():
 
 def test_create_edge():
     # create nodes first
-    client.post("/nodes", json={
+    r_a = client.post("/nodes", json={
         "id": "edge_a",
         "title": "Edge A",
         "year": 2020,
@@ -30,7 +30,9 @@ def test_create_edge():
         "summary": "A",
         "tier": 2
     })
-    client.post("/nodes", json={
+    assert r_a.status_code == 200
+
+    r_b = client.post("/nodes", json={
         "id": "edge_b",
         "title": "Edge B",
         "year": 2021,
@@ -38,6 +40,7 @@ def test_create_edge():
         "summary": "B",
         "tier": 2
     })
+    assert r_b.status_code == 200
 
     r = client.post("/edges", json={
         "type": "REFINES",
@@ -73,3 +76,9 @@ def test_snapshot_filters_future_edges():
     edges_2025 = r2.json()["edges"]
     assert all(e["timestamp"] <= 2025 for e in edges_2025)
     assert not any(e["timestamp"] == 2099 for e in edges_2025)
+
+
+def test_health():
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}
