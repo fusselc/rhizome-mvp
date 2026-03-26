@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Rhizome — Knowledge Discovery Engine</title>
+  <script src="/static/js/cytoscape.min.js"></script>
+  <style>
+    /* ── Reset & Base ────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d1a;
+      --panel-bg:  #12122a;
+      --border:    #2a2a5a;
+      --accent:    #7c6af7;
+      --accent2:   #4fc3f7;
+      --text:      #e0e0f0;
+      --muted:     #8080a0;
+      --green:     #26d96f;
+      --red:       #e74c3c;
+      --yellow:    #f1c40f;
+      --purple:    #9b59b6;
+      --radius:    8px;
+    }
+
+    html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Layout ──────────────────────────────────────────────────── */
+    header {
+      height: 48px; display: flex; align-items: center; padding: 0 20px;
+      background: var(--panel-bg); border-bottom: 1px solid var(--border);
+      font-size: 1.1rem; font-weight: 700; letter-spacing: 1px;
+      color: var(--accent);
+    }
+    header span { color: var(--muted); font-weight: 400; margin-left: 12px; font-size: .85rem; }
+
+    #app {
+      display: grid;
+      grid-template-columns: 260px 1fr 280px;
+      height: calc(100vh - 48px);
+    }
+
+    /* ── Panels ──────────────────────────────────────────────────── */
+    .panel {
+      background: var(--panel-bg);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+    .panel h3 {
+      font-size: .75rem; text-transform: uppercase; letter-spacing: 1.5px;
+      color: var(--muted); margin-bottom: 12px;
+    }
+
+    /* ── Slider ──────────────────────────────────────────────────── */
+    #slider-wrap { margin-bottom: 20px; }
+    #year-label {
+      display: block; text-align: center; font-size: 1.6rem; font-weight: 700;
+      color: var(--accent2); margin-bottom: 6px;
+    }
+    #year-slider {
+      -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px;
+      background: var(--border); outline: none;
+    }
+    #year-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+      background: var(--accent); cursor: pointer;
+    }
+    #year-range { display: flex; justify-content: space-between; font-size: .7rem; color: var(--muted); margin-top: 4px; }
+
+    /* ── Buttons ─────────────────────────────────────────────────── */
+    .btn {
+      display: block; width: 100%; padding: 9px 12px; margin-bottom: 8px;
+      background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
+      color: var(--text); cursor: pointer; font-size: .85rem; text-align: left;
+      transition: background .15s, border-color .15s;
+    }
+    .btn:hover { background: rgba(124,106,247,.15); border-color: var(--accent); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .btn-primary:hover { background: #6a59e0; }
+    .btn-danger  { background: var(--red);    border-color: var(--red);    color: #fff; }
+
+    /* ── Legend ──────────────────────────────────────────────────── */
+    .legend { margin-top: 20px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: .78rem; margin-bottom: 6px; color: var(--muted); }
+    .legend-line { width: 24px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+    .legend-line.dashed { background: repeating-linear-gradient(90deg, var(--red) 0, var(--red) 4px, transparent 4px, transparent 8px); height: 2px; }
+
+    /* ── Cytoscape canvas ────────────────────────────────────────── */
+    #cy { background: var(--bg); }
+
+    /* ── Right panel ─────────────────────────────────────────────── */
+    #inspector-placeholder { color: var(--muted); font-size: .9rem; padding: 12px 0; }
+
+    .field-label { font-size: .7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 14px; margin-bottom: 4px; }
+    .field-value { font-size: .9rem; line-height: 1.5; }
+    .field-value.quote { font-style: italic; border-left: 3px solid var(--accent); padding-left: 10px; color: var(--accent2); }
+
+    .tier-chip {
+      display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: .75rem;
+      background: rgba(124,106,247,.2); color: var(--accent); border: 1px solid var(--accent);
+    }
+
+    #hash-display { font-family: monospace; font-size: .7rem; color: var(--muted); word-break: break-all; }
+
+    .history-item {
+      font-size: .78rem; color: var(--muted); padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #serendipity-result {
+      margin-top: 12px; padding: 10px; border-radius: var(--radius);
+      background: rgba(38,217,111,.08); border: 1px solid var(--green);
+      font-size: .85rem; display: none;
+    }
+    #serendipity-result .sn-label { color: var(--green); font-weight: 700; }
+
+    #context-box {
+      margin-top: 12px; padding: 10px; border-radius: var(--radius);
+      background: #0a0a1a; border: 1px solid var(--border);
+      font-family: monospace; font-size: .72rem; white-space: pre-wrap;
+      line-height: 1.4; max-height: 260px; overflow-y: auto; display: none;
+    }
+
+    /* ── Toast ───────────────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 20px;
+      font-size: .85rem; opacity: 0; pointer-events: none; transition: opacity .3s;
+      z-index: 9999;
+    }
+    #toast.show { opacity: 1; }
+
+    /* ── Zombie popup ────────────────────────────────────────────── */
+    #zombie-panel {
+      position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+      background: var(--panel-bg); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 16px; width: 420px; max-height: 50vh; overflow-y: auto;
+      z-index: 9998; display: none; box-shadow: 0 8px 32px rgba(0,0,0,.6);
+    }
+    #zombie-panel h4 { color: var(--yellow); margin-bottom: 10px; }
+    #zombie-panel .close-btn { float: right; cursor: pointer; color: var(--muted); font-size: 1.2rem; }
+    .zombie-card {
+      padding: 8px; border: 1px solid var(--border); border-radius: 4px;
+      margin-bottom: 8px; font-size: .82rem;
+    }
+    .zombie-card .z-title { color: var(--accent2); font-weight: 600; }
+    .zombie-card .z-meta  { color: var(--muted); margin-top: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  🌿 Project Rhizome
+  <span>Many-Worlds Interpretation · 1925–2025</span>
+</header>
+
+<div id="app">
+
+  <!-- ── LEFT PANEL ─────────────────────────────────────────── -->
+  <div class="panel" id="left-panel">
+
+    <div id="slider-wrap">
+      <h3>⏱ Time-Lapse</h3>
+      <span id="year-label">2025</span>
+      <input type="range" id="year-slider" min="1920" max="2025" value="2025" step="1" />
+      <div id="year-range"><span>1920</span><span>2025</span></div>
+    </div>
+
+    <div style="margin-bottom:20px">
+      <h3>🌱 Guided Germination Paths</h3>
+      <button class="btn" onclick="focusNode('everett1957')">🔬 Everett Arc (1957)</button>
+      <button class="btn" onclick="focusNode('bohr_copenhagen')">📡 Copenhagen Challenge</button>
+      <button class="btn" onclick="focusNode('decoherence')">🧬 Decoherence Thread</button>
+      <button class="btn" onclick="focusNode('qbism')">🎲 QBism Branch</button>
+      <button class="btn" onclick="showAllNodes()">🗺 Show Full Graph</button>
+      <button class="btn" onclick="showZombies()">🧟 Detect Zombie Ideas</button>
+    </div>
+
+    <div class="legend">
+      <h3>Edge Legend</h3>
+      <div class="legend-item"><div class="legend-line dashed"></div> CONTESTS / REFUTES</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--green);height:4px"></div> REFINES / EXTENDS</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--accent2)"></div> RESONATES_WITH</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--purple)"></div> RESURRECTS</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--yellow)"></div> PROPOSES</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--muted)"></div> Other</div>
+    </div>
+
+  </div>
+
+  <!-- ── CENTRE: Cytoscape Canvas ───────────────────────────── -->
+  <div id="cy"></div>
+
+  <!-- ── RIGHT PANEL ────────────────────────────────────────── -->
+  <div class="panel" id="right-panel">
+    <h3>🔍 Node Inspector</h3>
+
+    <div id="inspector-placeholder">Click any node to inspect it.</div>
+    <div id="inspector-content" style="display:none">
+
+      <div class="field-label">Title</div>
+      <div class="field-value" id="ni-title"></div>
+
+      <div class="field-label">Year</div>
+      <div class="field-value" id="ni-year"></div>
+
+      <div class="field-label">Authors</div>
+      <div class="field-value" id="ni-authors"></div>
+
+      <div class="field-label">Method Flavor</div>
+      <div class="field-value" id="ni-flavor"></div>
+
+      <div class="field-label">Tier</div>
+      <div class="field-value" id="ni-tier"></div>
+
+      <div class="field-label">Summary</div>
+      <div class="field-value" id="ni-summary"></div>
+
+      <div id="raw-quote-section" style="display:none">
+        <div class="field-label">Raw Quote (immutable)</div>
+        <div class="field-value quote" id="ni-quote"></div>
+      </div>
+
+      <div id="provenance-section" style="display:none">
+        <div class="field-label">Provenance (immutable)</div>
+        <div class="field-value" id="ni-provenance"></div>
+      </div>
+
+      <div id="hash-section" style="display:none">
+        <div class="field-label">Source Hash (SHA-256)</div>
+        <div id="hash-display"></div>
+      </div>
+
+      <div class="field-label">Credibility History</div>
+      <div id="ni-history"></div>
+
+      <div style="margin-top:16px; display:flex; flex-direction:column; gap:8px">
+        <button class="btn btn-primary" id="serendipity-btn" onclick="runSerendipity()">
+          🎲 Run Serendipity Walk
+        </button>
+        <button class="btn" onclick="loadContext()">
+          🧠 Get Topology Context
+        </button>
+      </div>
+
+      <div id="serendipity-result">
+        <div class="sn-label">✨ Conceptual Neighbour Found!</div>
+        <div id="sn-title" style="margin-top:6px"></div>
+        <div id="sn-meta"  style="margin-top:3px; color:var(--muted); font-size:.78rem"></div>
+      </div>
+
+      <div id="context-box"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Zombie Ideas popup -->
+<div id="zombie-panel">
+  <span class="close-btn" onclick="document.getElementById('zombie-panel').style.display='none'">✕</span>
+  <h4>🧟 Zombie Ideas Detected</h4>
+  <div id="zombie-list"></div>
+</div>
+
+<!-- Toast notification -->
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let cy = null;
+let selectedNodeId = null;
+let currentYear = 2025;
+
+// ── Init ───────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initCytoscape();
+  loadSnapshot(currentYear);
+
+  const slider = document.getElementById('year-slider');
+  slider.addEventListener('input', () => {
+    currentYear = parseInt(slider.value);
+    document.getElementById('year-label').textContent = currentYear;
+    loadSnapshot(currentYear);
+  });
+});
+
+function initCytoscape() {
+  cy = cytoscape({
+    container: document.getElementById('cy'),
+    style: buildStyle(),
+    layout: { name: 'cose', animate: true, randomize: false },
+    elements: [],
+  });
+
+  cy.on('tap', 'node', (evt) => {
+    const node = evt.target;
+    selectedNodeId = node.id();
+    displayNodeInspector(node.data());
+    cy.elements().removeClass('highlighted dimmed');
+    node.addClass('highlighted');
+    node.neighborhood().addClass('highlighted');
+    cy.elements().not(node.neighborhood()).not(node).addClass('dimmed');
+  });
+
+  cy.on('tap', (evt) => {
+    if (evt.target === cy) {
+      cy.elements().removeClass('highlighted dimmed');
+      clearInspector();
+    }
+  });
+}
+
+// ── Edge style helpers ──────────────────────────────────────────────────────
+function edgeColor(type) {
+  const m = {
+    CONTESTS: '#e74c3c', REFUTES: '#e74c3c', CRITIQUES: '#e74c3c', ABANDONS: '#e74c3c',
+    REFINES:  '#26d96f', EXTENDS: '#26d96f',
+    RESONATES_WITH: '#4fc3f7',
+    RESURRECTS: '#9b59b6',
+    PROPOSES: '#f1c40f',
+    SUPERSEDES: '#7f8c8d',
+  };
+  return m[type] || '#8080a0';
+}
+
+function edgeDash(type) {
+  return ['CONTESTS', 'REFUTES', 'CRITIQUES', 'ABANDONS'].includes(type)
+    ? '8 4' : 'none';
+}
+
+function edgeWidth(type) {
+  return ['REFINES', 'EXTENDS'].includes(type) ? 4 : 2;
+}
+
+function buildStyle() {
+  return [
+    {
+      selector: 'node',
+      style: {
+        'background-color': '#2a2a6a',
+        'border-color': '#7c6af7',
+        'border-width': 2,
+        'label': 'data(label)',
+        'color': '#e0e0f0',
+        'font-size': '11px',
+        'text-valign': 'bottom',
+        'text-margin-y': '6px',
+        'text-wrap': 'wrap',
+        'text-max-width': '100px',
+        'width': 44,
+        'height': 44,
+      }
+    },
+    {
+      selector: 'node[flavor = "Axiomatic"]',
+      style: { 'border-color': '#4fc3f7', 'background-color': '#0d2a3a' }
+    },
+    {
+      selector: 'node[flavor = "Phenomenological"]',
+      style: { 'border-color': '#f39c12', 'background-color': '#2a1a00' }
+    },
+    {
+      selector: 'node.highlighted',
+      style: { 'border-width': 4, 'border-color': '#7c6af7', 'background-color': '#3a3a9a' }
+    },
+    {
+      selector: 'node.dimmed',
+      style: { 'opacity': 0.3 }
+    },
+    {
+      selector: 'node.serendipity-target',
+      style: { 'border-color': '#26d96f', 'border-width': 5, 'background-color': '#0a3a1a' }
+    },
+    {
+      selector: 'edge',
+      style: {
+        'width': 'data(width)',
+        'line-color': 'data(color)',
+        'target-arrow-color': 'data(color)',
+        'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier',
+        'line-dash-pattern': 'data(dash)',
+        'line-style': 'data(lineStyle)',
+        'label': 'data(label)',
+        'font-size': '9px',
+        'color': '#8080a0',
+        'text-rotation': 'autorotate',
+        'text-margin-y': '-8px',
+      }
+    },
+  ];
+}
+
+// ── Data loading ────────────────────────────────────────────────────────────
+async function loadSnapshot(year) {
+  try {
+    const res = await fetch(`/graph/snapshot?year=${year}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderGraph(data.nodes, data.edges);
+  } catch (e) {
+    showToast('⚠ Failed to load snapshot: ' + e.message);
+  }
+}
+
+function renderGraph(nodes, edges) {
+  if (!cy) return;
+
+  const elements = [];
+
+  nodes.forEach(n => {
+    elements.push({
+      group: 'nodes',
+      data: {
+        id: n.id,
+        label: n.title.length > 30 ? n.title.slice(0, 28) + '…' : n.title,
+        year: n.year,
+        flavor: n.method_flavor || '',
+        tier: n.tier,
+        // Store full node data for inspector
+        _full: n,
+      }
+    });
+  });
+
+  edges.forEach(e => {
+    const dash = edgeDash(e.type);
+    elements.push({
+      group: 'edges',
+      data: {
+        id: `${e.from_id}-${e.type}-${e.to_id}`,
+        source: e.from_id,
+        target: e.to_id,
+        label: e.type,
+        color: edgeColor(e.type),
+        width: edgeWidth(e.type),
+        dash: dash === 'none' ? [] : [8, 4],
+        lineStyle: dash === 'none' ? 'solid' : 'dashed',
+        tension: e.tension,
+        _full: e,
+      }
+    });
+  });
+
+  cy.elements().remove();
+  cy.add(elements);
+  cy.layout({
+    name: 'cose',
+    animate: false,
+    randomize: false,
+    nodeRepulsion: 8000,
+    idealEdgeLength: 120,
+    gravity: 0.8,
+  }).run();
+
+  // Re-highlight selected node if still in graph
+  if (selectedNodeId && cy.getElementById(selectedNodeId).length) {
+    const n = cy.getElementById(selectedNodeId);
+    cy.elements().removeClass('highlighted dimmed');
+    n.addClass('highlighted');
+    n.neighborhood().addClass('highlighted');
+    cy.elements().not(n.neighborhood()).not(n).addClass('dimmed');
+  }
+}
+
+// ── Inspector ───────────────────────────────────────────────────────────────
+function displayNodeInspector(data) {
+  const full = data._full;
+  document.getElementById('inspector-placeholder').style.display = 'none';
+  document.getElementById('inspector-content').style.display = 'block';
+
+  document.getElementById('ni-title').textContent   = full.title;
+  document.getElementById('ni-year').textContent    = full.year;
+  document.getElementById('ni-authors').textContent = (full.authors || []).join(', ');
+  document.getElementById('ni-flavor').textContent  = full.method_flavor || '—';
+  document.getElementById('ni-tier').innerHTML      = `<span class="tier-chip">Tier ${full.tier}</span>`;
+  document.getElementById('ni-summary').textContent = full.summary;
+
+  // Immutable provenance fields
+  const quoteSection = document.getElementById('raw-quote-section');
+  const provSection  = document.getElementById('provenance-section');
+  const hashSection  = document.getElementById('hash-section');
+
+  if (full.raw_quote) {
+    document.getElementById('ni-quote').textContent = `"${full.raw_quote}"`;
+    quoteSection.style.display = 'block';
+  } else {
+    quoteSection.style.display = 'none';
+  }
+  if (full.provenance) {
+    document.getElementById('ni-provenance').textContent = full.provenance;
+    provSection.style.display = 'block';
+  } else {
+    provSection.style.display = 'none';
+  }
+  if (full.source_hash) {
+    document.getElementById('hash-display').textContent = full.source_hash;
+    hashSection.style.display = 'block';
+  } else {
+    hashSection.style.display = 'none';
+  }
+
+  // Credibility history
+  const histDiv = document.getElementById('ni-history');
+  histDiv.innerHTML = '';
+  (full.credibility_history || []).forEach(h => {
+    const d = document.createElement('div');
+    d.className = 'history-item';
+    d.textContent = `${h.year} — Tier ${h.tier}${h.note ? ` (${h.note})` : ''}`;
+    histDiv.appendChild(d);
+  });
+
+  // Reset dynamic sections
+  document.getElementById('serendipity-result').style.display = 'none';
+  document.getElementById('context-box').style.display = 'none';
+  document.getElementById('serendipity-btn').disabled = false;
+}
+
+function clearInspector() {
+  selectedNodeId = null;
+  document.getElementById('inspector-placeholder').style.display = 'block';
+  document.getElementById('inspector-content').style.display = 'none';
+}
+
+// ── Serendipity Walk ────────────────────────────────────────────────────────
+async function runSerendipity() {
+  if (!selectedNodeId) { showToast('Select a node first.'); return; }
+  const btn = document.getElementById('serendipity-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Walking…';
+
+  try {
+    const res = await fetch(`/graph/serendipity/${selectedNodeId}?max_steps=4`);
+    if (!res.ok) {
+      const err = await res.json();
+      showToast('No path found: ' + (err.detail || 'unknown'));
+      return;
+    }
+    const result = await res.json();
+
+    // Highlight the discovered neighbour
+    cy.elements().removeClass('serendipity-target');
+    const target = cy.getElementById(result.neighbor_id);
+    if (target.length) target.addClass('serendipity-target');
+
+    const box = document.getElementById('serendipity-result');
+    document.getElementById('sn-title').textContent = `"${result.neighbor_title}"`;
+    document.getElementById('sn-meta').textContent  =
+      `${result.path_length} hop(s) · Discovery score: ${result.discovery_score}`;
+    box.style.display = 'block';
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🎲 Run Serendipity Walk';
+  }
+}
+
+// ── Topology Context ────────────────────────────────────────────────────────
+async function loadContext() {
+  if (!selectedNodeId) { showToast('Select a node first.'); return; }
+  const box = document.getElementById('context-box');
+  box.style.display = 'block';
+  box.textContent = '⏳ Fetching context…';
+  try {
+    const res = await fetch(`/graph/comprehension/${selectedNodeId}?depth=2`);
+    const data = await res.json();
+    box.textContent = data.context;
+  } catch (e) {
+    box.textContent = 'Error loading context.';
+  }
+}
+
+// ── Focus helpers ───────────────────────────────────────────────────────────
+function focusNode(nodeId) {
+  const n = cy.getElementById(nodeId);
+  if (!n.length) { showToast(`Node "${nodeId}" not visible at year ${currentYear}.`); return; }
+  cy.elements().removeClass('highlighted dimmed');
+  n.addClass('highlighted');
+  n.neighborhood().addClass('highlighted');
+  cy.elements().not(n.neighborhood()).not(n).addClass('dimmed');
+  cy.animate({ fit: { eles: n.neighborhood().add(n), padding: 80 }, duration: 400 });
+  selectedNodeId = nodeId;
+  displayNodeInspector(n.data());
+}
+
+function showAllNodes() {
+  cy.elements().removeClass('highlighted dimmed');
+  selectedNodeId = null;
+  clearInspector();
+  cy.animate({ fit: { padding: 40 }, duration: 400 });
+}
+
+// ── Zombie Ideas ─────────────────────────────────────────────────────────────
+async function showZombies() {
+  try {
+    const res = await fetch('/graph/zombies?dormancy_threshold=10');
+    const zombies = await res.json();
+    const list = document.getElementById('zombie-list');
+    list.innerHTML = '';
+    if (!zombies.length) {
+      list.innerHTML = '<p style="color:var(--muted)">No zombie ideas detected.</p>';
+    } else {
+      zombies.forEach(z => {
+        list.innerHTML += `
+          <div class="zombie-card">
+            <div class="z-title">${z.title}</div>
+            <div class="z-meta">
+              Dormant ${z.dormant_years} years · Tier ${z.fringe_tier}
+              ${z.resurrected_by ? `· Revived by: <em>${z.resurrected_by}</em>` : ''}
+            </div>
+          </div>`;
+      });
+    }
+    document.getElementById('zombie-panel').style.display = 'block';
+  } catch (e) {
+    showToast('Error fetching zombies: ' + e.message);
+  }
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, duration = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+</script>
+</body>
+</html>
