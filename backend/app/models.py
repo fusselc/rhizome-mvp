@@ -107,11 +107,11 @@ class EdgeCreate(BaseModel):
     to_id: str
     timestamp: int
     rationale: Optional[str] = None
-    tension: float = Field(
-        default=0.0,
+    tension: Optional[float] = Field(
+        default=None,
         ge=0.0,
         le=1.0,
-        description="Edge friction (0.0 = smooth / paved, 1.0 = maximum resistance)",
+        description="Edge friction (0.0 = smooth / paved, 1.0 = maximum resistance). Auto-computed from edge type when not provided.",
     )
     method_flavor_delta: Optional[float] = Field(
         default=None,
@@ -120,11 +120,13 @@ class EdgeCreate(BaseModel):
 
     @model_validator(mode="after")
     def _compute_tension(self) -> "EdgeCreate":
-        # Auto-set tension from edge type when the caller did not supply one.
-        # Use self.type directly (not str(self.type)) — in Python 3.11+
-        # str() on a str-enum returns "EnumName.VALUE", not the bare value.
-        if self.tension == 0.0:
-            self.tension = EDGE_TENSION_DEFAULTS.get(self.type, 0.5)
+        # Auto-set tension from edge type when the caller did not supply a value.
+        # We use None as the sentinel (not 0.0) so that explicitly-set 0.0 tensions
+        # on perfectly smooth edges are preserved.
+        # Use .value for explicit enum→string conversion (avoids Python 3.11+
+        # str(StrEnum) returning "EnumName.VALUE" instead of the bare value).
+        if self.tension is None:
+            self.tension = EDGE_TENSION_DEFAULTS.get(self.type.value, 0.5)
         return self
 
 

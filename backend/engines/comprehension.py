@@ -96,7 +96,7 @@ async def get_llm_comprehension_context(
             to_node = nodes[edge.to_id]
             friction_label = (
                 "🟢 PAVED PATH"
-                if edge.type in LOW_FRICTION_TYPES
+                if edge.type.value in LOW_FRICTION_TYPES
                 else "🔴 BUSHWHACKING"
             )
             path_str = (
@@ -143,7 +143,7 @@ async def detect_zombie_ideas(
 
     zombies: List[ZombieIdea] = []
     for edge in edges:
-        if edge.type != "RESURRECTS":
+        if edge.type.value != "RESURRECTS":
             continue
         target = nodes.get(edge.to_id)
         if target is None:

@@ -123,7 +123,7 @@ class InMemoryGraphStore:
                 to_node = self.nodes[edge.to_id]
                 friction_label = (
                     "🟢 PAVED PATH"
-                    if edge.type in LOW_FRICTION_TYPES
+                    if edge.type.value in LOW_FRICTION_TYPES
                     else "🔴 BUSHWHACKING"
                 )
                 path_str = (
@@ -160,7 +160,7 @@ class InMemoryGraphStore:
         """
         zombies: List[ZombieIdea] = []
         for edge in self.edges:
-            if edge.type != "RESURRECTS":
+            if edge.type.value != "RESURRECTS":
                 continue
             target_id = edge.to_id
             if target_id not in self.nodes:
