@@ -17,6 +17,52 @@ HIGH_FRICTION_TYPES: Set[str] = {"CONTESTS", "REFUTES", "CRITIQUES", "ABANDONS",
 LOW_FRICTION_TYPES: Set[str] = {"REFINES", "EXTENDS", "RESONATES_WITH", "PROPOSES"}
 
 
+def _build_comprehension_paths(
+    node_id: str,
+    nodes: Dict[str, "Node"],
+    edges: List["Edge"],
+    depth: int,
+) -> List[str]:
+    """
+    Shared traversal helper for Topology-as-Prompt (Engine 3).
+
+    Performs a depth-limited DFS from node_id and returns a list of
+    human/LLM-readable path strings with friction labels:
+        🟢 PAVED PATH   — low-tension edge (REFINES, EXTENDS, …)
+        🔴 BUSHWHACKING — high-tension edge (CONTESTS, REFUTES, …)
+    """
+    visited: Set[str] = set()
+    paths: List[str] = []
+
+    def _traverse(current_id: str, current_depth: int) -> None:
+        if current_depth > depth or current_id in visited:
+            return
+        visited.add(current_id)
+        connected = [e for e in edges if e.from_id == current_id or e.to_id == current_id]
+        for edge in connected:
+            neighbor_id = edge.to_id if edge.from_id == current_id else edge.from_id
+            if neighbor_id not in nodes:
+                continue
+            from_node = nodes[edge.from_id]
+            to_node = nodes[edge.to_id]
+            friction_label = (
+                "🟢 PAVED PATH"
+                if edge.type.value in LOW_FRICTION_TYPES
+                else "🔴 BUSHWHACKING"
+            )
+            path_str = (
+                f"[{from_node.title} ({from_node.method_flavor or 'Unknown'})]"
+                f" --[{edge.type.value} | tension={edge.tension:.2f} | {friction_label}]--> "
+                f"[{to_node.title} ({to_node.method_flavor or 'Unknown'})]"
+            )
+            if path_str not in paths:
+                paths.append(path_str)
+            _traverse(neighbor_id, current_depth + 1)
+
+    _traverse(node_id, 1)
+    return paths
+
+
 class InMemoryGraphStore:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
@@ -101,41 +147,10 @@ class InMemoryGraphStore:
         if node_id not in self.nodes:
             raise KeyError(f"Node '{node_id}' not found.")
 
-        visited: Set[str] = set()
-        paths: List[str] = []
         center = self.nodes[node_id]
-
-        def _traverse(current_id: str, current_depth: int) -> None:
-            if current_depth > depth or current_id in visited:
-                return
-            visited.add(current_id)
-            connected = [
-                e for e in self.edges
-                if e.from_id == current_id or e.to_id == current_id
-            ]
-            for edge in connected:
-                neighbor_id = (
-                    edge.to_id if edge.from_id == current_id else edge.from_id
-                )
-                if neighbor_id not in self.nodes:
-                    continue
-                from_node = self.nodes[edge.from_id]
-                to_node = self.nodes[edge.to_id]
-                friction_label = (
-                    "🟢 PAVED PATH"
-                    if edge.type.value in LOW_FRICTION_TYPES
-                    else "🔴 BUSHWHACKING"
-                )
-                path_str = (
-                    f"[{from_node.title} ({from_node.method_flavor or 'Unknown'})]"
-                    f" --[{edge.type.value} | tension={edge.tension:.2f} | {friction_label}]--> "
-                    f"[{to_node.title} ({to_node.method_flavor or 'Unknown'})]"
-                )
-                if path_str not in paths:
-                    paths.append(path_str)
-                _traverse(neighbor_id, current_depth + 1)
-
-        _traverse(node_id, 1)
+        paths = _build_comprehension_paths(
+            node_id=node_id, nodes=self.nodes, edges=self.edges, depth=depth
+        )
 
         header = (
             f"GRAPH CONTEXT for '{center.title}' (ID: {node_id})\n"

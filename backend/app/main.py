@@ -5,7 +5,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .routes import router
 from .routers.graph import router as graph_router
 
 # Paths relative to the project root (3 dirs above backend/app/main.py)
@@ -16,7 +15,6 @@ _STATIC_DIR = _PROJECT_ROOT / "frontend" / "static"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 app = FastAPI(title="Project Rhizome — Knowledge Discovery Engine")
-app.include_router(router)
 app.include_router(graph_router)
 
 if _STATIC_DIR.exists():
