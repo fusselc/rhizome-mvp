@@ -38,7 +38,7 @@ def _build_comprehension_paths(
         if current_depth > depth or current_id in visited:
             return
         visited.add(current_id)
-        connected = [e for e in edges if e.from_id == current_id or e.to_id == current_id]
+        connected = [edge for edge in edges if edge.from_id == current_id or edge.to_id == current_id]
         for edge in connected:
             neighbor_id = edge.to_id if edge.from_id == current_id else edge.from_id
             if neighbor_id not in nodes:
@@ -87,16 +87,16 @@ class InMemoryGraphStore:
         if payload.to_id not in self.nodes:
             raise KeyError(f"to_id '{payload.to_id}' not found.")
         # Compute method_flavor_delta from endpoint node flavors when not supplied
-        data = payload.model_dump()
-        if data.get("method_flavor_delta") is None:
+        edge_data = payload.model_dump()
+        if edge_data.get("method_flavor_delta") is None:
             from_flavor = METHOD_FLAVOR_VALUES.get(
                 self.nodes[payload.from_id].method_flavor or "", 0.0
             )
             to_flavor = METHOD_FLAVOR_VALUES.get(
                 self.nodes[payload.to_id].method_flavor or "", 0.0
             )
-            data["method_flavor_delta"] = abs(from_flavor - to_flavor)
-        edge = Edge(**data)
+            edge_data["method_flavor_delta"] = abs(from_flavor - to_flavor)
+        edge = Edge(**edge_data)
         self.edges.append(edge)
         return edge
 
@@ -104,25 +104,25 @@ class InMemoryGraphStore:
         center = self.get_node(node_id)
 
         filtered_edges = [
-            e for e in self.edges
-            if e.timestamp <= year and (e.from_id == node_id or e.to_id == node_id)
+            edge for edge in self.edges
+            if edge.timestamp <= year and (edge.from_id == node_id or edge.to_id == node_id)
         ]
 
         neighbor_ids: Set[str] = {node_id}
-        for e in filtered_edges:
-            neighbor_ids.add(e.from_id)
-            neighbor_ids.add(e.to_id)
+        for edge in filtered_edges:
+            neighbor_ids.add(edge.from_id)
+            neighbor_ids.add(edge.to_id)
 
         nodes = [self.nodes[nid] for nid in neighbor_ids]
         return center, nodes, filtered_edges
 
     def snapshot(self, year: int) -> Tuple[List[Node], List[Edge]]:
         """Return all nodes born ≤ year and all edges with timestamp ≤ year."""
-        nodes = [n for n in self.nodes.values() if n.year <= year]
-        node_ids = {n.id for n in nodes}
+        nodes = [node for node in self.nodes.values() if node.year <= year]
+        node_ids = {node.id for node in nodes}
         edges = [
-            e for e in self.edges
-            if e.timestamp <= year and e.from_id in node_ids and e.to_id in node_ids
+            edge for edge in self.edges
+            if edge.timestamp <= year and edge.from_id in node_ids and edge.to_id in node_ids
         ]
         return nodes, edges
 
@@ -212,16 +212,16 @@ class InMemoryGraphStore:
 
         for step in range(max_steps):
             adjacent = [
-                e for e in self.edges
-                if (e.from_id == current_id or e.to_id == current_id)
+                edge for edge in self.edges
+                if (edge.from_id == current_id or edge.to_id == current_id)
                 and (
-                    (e.from_id not in visited) or (e.to_id not in visited)
+                    (edge.from_id not in visited) or (edge.to_id not in visited)
                 )
             ]
             if not adjacent:
                 break
             # Bias toward high-friction edges for maximum serendipity
-            weights = [0.3 + e.tension for e in adjacent]
+            weights = [0.3 + edge.tension for edge in adjacent]
             chosen = random.choices(adjacent, weights=weights, k=1)[0]
             next_id = (
                 chosen.to_id if chosen.from_id == current_id else chosen.from_id

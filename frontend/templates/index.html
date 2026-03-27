@@ -297,8 +297,8 @@ function initCytoscape() {
     elements: [],
   });
 
-  cy.on('tap', 'node', (evt) => {
-    const node = evt.target;
+  cy.on('tap', 'node', (event) => {
+    const node = event.target;
     selectedNodeId = node.id();
     displayNodeInspector(node.data());
     cy.elements().removeClass('highlighted dimmed');
@@ -307,8 +307,8 @@ function initCytoscape() {
     cy.elements().not(node.neighborhood()).not(node).addClass('dimmed');
   });
 
-  cy.on('tap', (evt) => {
-    if (evt.target === cy) {
+  cy.on('tap', (event) => {
+    if (event.target === cy) {
       cy.elements().removeClass('highlighted dimmed');
       clearInspector();
     }
@@ -317,7 +317,7 @@ function initCytoscape() {
 
 // ── Edge style helpers ──────────────────────────────────────────────────────
 function edgeColor(type) {
-  const m = {
+  const colorMap = {
     CONTESTS: '#e74c3c', REFUTES: '#e74c3c', CRITIQUES: '#e74c3c', ABANDONS: '#e74c3c',
     REFINES:  '#26d96f', EXTENDS: '#26d96f',
     RESONATES_WITH: '#4fc3f7',
@@ -325,7 +325,7 @@ function edgeColor(type) {
     PROPOSES: '#f1c40f',
     SUPERSEDES: '#7f8c8d',
   };
-  return m[type] || '#8080a0';
+  return colorMap[type] || '#8080a0';
 }
 
 function edgeDash(type) {
@@ -399,12 +399,12 @@ function buildStyle() {
 // ── Data loading ────────────────────────────────────────────────────────────
 async function loadSnapshot(year) {
   try {
-    const res = await fetch(`/graph/snapshot?year=${year}`);
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    renderGraph(data.nodes, data.edges);
-  } catch (e) {
-    showToast('⚠ Failed to load snapshot: ' + e.message);
+    const response = await fetch(`/graph/snapshot?year=${year}`);
+    if (!response.ok) throw new Error(await response.text());
+    const snapshotData = await response.json();
+    renderGraph(snapshotData.nodes, snapshotData.edges);
+  } catch (error) {
+    showToast('⚠ Failed to load snapshot: ' + error.message);
   }
 }
 
@@ -413,36 +413,36 @@ function renderGraph(nodes, edges) {
 
   const elements = [];
 
-  nodes.forEach(n => {
+  nodes.forEach(node => {
     elements.push({
       group: 'nodes',
       data: {
-        id: n.id,
-        label: n.title.length > 30 ? n.title.slice(0, 28) + '…' : n.title,
-        year: n.year,
-        flavor: n.method_flavor || '',
-        tier: n.tier,
+        id: node.id,
+        label: node.title.length > 30 ? node.title.slice(0, 28) + '…' : node.title,
+        year: node.year,
+        flavor: node.method_flavor || '',
+        tier: node.tier,
         // Store full node data for inspector
-        _full: n,
+        _full: node,
       }
     });
   });
 
-  edges.forEach(e => {
-    const dash = edgeDash(e.type);
+  edges.forEach(edge => {
+    const dash = edgeDash(edge.type);
     elements.push({
       group: 'edges',
       data: {
-        id: `${e.from_id}-${e.type}-${e.to_id}`,
-        source: e.from_id,
-        target: e.to_id,
-        label: e.type,
-        color: edgeColor(e.type),
-        width: edgeWidth(e.type),
+        id: `${edge.from_id}-${edge.type}-${edge.to_id}`,
+        source: edge.from_id,
+        target: edge.to_id,
+        label: edge.type,
+        color: edgeColor(edge.type),
+        width: edgeWidth(edge.type),
         dash: dash === 'none' ? [] : [8, 4],
         lineStyle: dash === 'none' ? 'solid' : 'dashed',
-        tension: e.tension,
-        _full: e,
+        tension: edge.tension,
+        _full: edge,
       }
     });
   });
@@ -460,11 +460,11 @@ function renderGraph(nodes, edges) {
 
   // Re-highlight selected node if still in graph
   if (selectedNodeId && cy.getElementById(selectedNodeId).length) {
-    const n = cy.getElementById(selectedNodeId);
+    const selectedNode = cy.getElementById(selectedNodeId);
     cy.elements().removeClass('highlighted dimmed');
-    n.addClass('highlighted');
-    n.neighborhood().addClass('highlighted');
-    cy.elements().not(n.neighborhood()).not(n).addClass('dimmed');
+    selectedNode.addClass('highlighted');
+    selectedNode.neighborhood().addClass('highlighted');
+    cy.elements().not(selectedNode.neighborhood()).not(selectedNode).addClass('dimmed');
   }
 }
 
@@ -508,11 +508,11 @@ function displayNodeInspector(data) {
   // Credibility history
   const histDiv = document.getElementById('ni-history');
   histDiv.innerHTML = '';
-  (full.credibility_history || []).forEach(h => {
-    const d = document.createElement('div');
-    d.className = 'history-item';
-    d.textContent = `${h.year} — Tier ${h.tier}${h.note ? ` (${h.note})` : ''}`;
-    histDiv.appendChild(d);
+  (full.credibility_history || []).forEach(historyEntry => {
+    const historyEntryDiv = document.createElement('div');
+    historyEntryDiv.className = 'history-item';
+    historyEntryDiv.textContent = `${historyEntry.year} — Tier ${historyEntry.tier}${historyEntry.note ? ` (${historyEntry.note})` : ''}`;
+    histDiv.appendChild(historyEntryDiv);
   });
 
   // Reset dynamic sections
@@ -530,63 +530,63 @@ function clearInspector() {
 // ── Serendipity Walk ────────────────────────────────────────────────────────
 async function runSerendipity() {
   if (!selectedNodeId) { showToast('Select a node first.'); return; }
-  const btn = document.getElementById('serendipity-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳ Walking…';
+  const serendipityButton = document.getElementById('serendipity-btn');
+  serendipityButton.disabled = true;
+  serendipityButton.textContent = '⏳ Walking…';
 
   try {
-    const res = await fetch(`/graph/serendipity/${selectedNodeId}?max_steps=4`);
-    if (!res.ok) {
-      const err = await res.json();
-      showToast('No path found: ' + (err.detail || 'unknown'));
+    const response = await fetch(`/graph/serendipity/${selectedNodeId}?max_steps=4`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      showToast('No path found: ' + (errorData.detail || 'unknown'));
       return;
     }
-    const result = await res.json();
+    const result = await response.json();
 
     // Highlight the discovered neighbour
     cy.elements().removeClass('serendipity-target');
     const target = cy.getElementById(result.neighbor_id);
     if (target.length) target.addClass('serendipity-target');
 
-    const box = document.getElementById('serendipity-result');
+    const serendipityResultBox = document.getElementById('serendipity-result');
     document.getElementById('sn-title').textContent = `"${result.neighbor_title}"`;
     document.getElementById('sn-meta').textContent  =
       `${result.path_length} hop(s) · Discovery score: ${result.discovery_score}`;
-    box.style.display = 'block';
-  } catch (e) {
-    showToast('Error: ' + e.message);
+    serendipityResultBox.style.display = 'block';
+  } catch (error) {
+    showToast('Error: ' + error.message);
   } finally {
-    btn.disabled = false;
-    btn.textContent = '🎲 Run Serendipity Walk';
+    serendipityButton.disabled = false;
+    serendipityButton.textContent = '🎲 Run Serendipity Walk';
   }
 }
 
 // ── Topology Context ────────────────────────────────────────────────────────
 async function loadContext() {
   if (!selectedNodeId) { showToast('Select a node first.'); return; }
-  const box = document.getElementById('context-box');
-  box.style.display = 'block';
-  box.textContent = '⏳ Fetching context…';
+  const contextBox = document.getElementById('context-box');
+  contextBox.style.display = 'block';
+  contextBox.textContent = '⏳ Fetching context…';
   try {
-    const res = await fetch(`/graph/comprehension/${selectedNodeId}?depth=2`);
-    const data = await res.json();
-    box.textContent = data.context;
-  } catch (e) {
-    box.textContent = 'Error loading context.';
+    const response = await fetch(`/graph/comprehension/${selectedNodeId}?depth=2`);
+    const comprehensionData = await response.json();
+    contextBox.textContent = comprehensionData.context;
+  } catch (error) {
+    contextBox.textContent = 'Error loading context.';
   }
 }
 
 // ── Focus helpers ───────────────────────────────────────────────────────────
 function focusNode(nodeId) {
-  const n = cy.getElementById(nodeId);
-  if (!n.length) { showToast(`Node "${nodeId}" not visible at year ${currentYear}.`); return; }
+  const focusedNode = cy.getElementById(nodeId);
+  if (!focusedNode.length) { showToast(`Node "${nodeId}" not visible at year ${currentYear}.`); return; }
   cy.elements().removeClass('highlighted dimmed');
-  n.addClass('highlighted');
-  n.neighborhood().addClass('highlighted');
-  cy.elements().not(n.neighborhood()).not(n).addClass('dimmed');
-  cy.animate({ fit: { eles: n.neighborhood().add(n), padding: 80 }, duration: 400 });
+  focusedNode.addClass('highlighted');
+  focusedNode.neighborhood().addClass('highlighted');
+  cy.elements().not(focusedNode.neighborhood()).not(focusedNode).addClass('dimmed');
+  cy.animate({ fit: { eles: focusedNode.neighborhood().add(focusedNode), padding: 80 }, duration: 400 });
   selectedNodeId = nodeId;
-  displayNodeInspector(n.data());
+  displayNodeInspector(focusedNode.data());
 }
 
 function showAllNodes() {
@@ -599,36 +599,36 @@ function showAllNodes() {
 // ── Zombie Ideas ─────────────────────────────────────────────────────────────
 async function showZombies() {
   try {
-    const res = await fetch('/graph/zombies?dormancy_threshold=10');
-    const zombies = await res.json();
-    const list = document.getElementById('zombie-list');
-    list.innerHTML = '';
+    const response = await fetch('/graph/zombies?dormancy_threshold=10');
+    const zombies = await response.json();
+    const zombieList = document.getElementById('zombie-list');
+    zombieList.innerHTML = '';
     if (!zombies.length) {
-      list.innerHTML = '<p style="color:var(--muted)">No zombie ideas detected.</p>';
+      zombieList.innerHTML = '<p style="color:var(--muted)">No zombie ideas detected.</p>';
     } else {
-      zombies.forEach(z => {
-        list.innerHTML += `
+      zombies.forEach(zombie => {
+        zombieList.innerHTML += `
           <div class="zombie-card">
-            <div class="z-title">${z.title}</div>
+            <div class="z-title">${zombie.title}</div>
             <div class="z-meta">
-              Dormant ${z.dormant_years} years · Tier ${z.fringe_tier}
-              ${z.resurrected_by ? `· Revived by: <em>${z.resurrected_by}</em>` : ''}
+              Dormant ${zombie.dormant_years} years · Tier ${zombie.fringe_tier}
+              ${zombie.resurrected_by ? `· Revived by: <em>${zombie.resurrected_by}</em>` : ''}
             </div>
           </div>`;
       });
     }
     document.getElementById('zombie-panel').style.display = 'block';
-  } catch (e) {
-    showToast('Error fetching zombies: ' + e.message);
+  } catch (error) {
+    showToast('Error fetching zombies: ' + error.message);
   }
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 function showToast(msg, duration = 3000) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), duration);
+  const toastElement = document.getElementById('toast');
+  toastElement.textContent = msg;
+  toastElement.classList.add('show');
+  setTimeout(() => toastElement.classList.remove('show'), duration);
 }
 </script>
 </body>
