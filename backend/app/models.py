@@ -38,12 +38,11 @@ METHOD_FLAVOR_VALUES: Dict[str, float] = {
     "Phenomenological": -1.0,
 }
 
-# Tension modifiers keyed by frozenset of method flavor pairs.
+# Tension bonus keyed by frozenset of method flavor pairs.
 # Cross-paradigm edges carry additional epistemic friction.
+# Same-flavor pairs carry no bonus (default 0.0 from .get() fallback).
 FLAVOR_PAIR_TENSION_BONUS: Dict[frozenset, float] = {
     frozenset({"Axiomatic", "Phenomenological"}): 0.15,
-    frozenset({"Axiomatic"}): 0.0,           # same-flavor Axiomatic pair
-    frozenset({"Phenomenological"}): 0.0,    # same-flavor Phenomenological pair
 }
 
 

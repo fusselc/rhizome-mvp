@@ -43,6 +43,8 @@ except ModuleNotFoundError:
     )
     from backend.app.storage import _build_comprehension_paths  # type: ignore[no-redef]
 
+_SEPARATOR = "=" * 60
+
 _SYSTEM_PREAMBLE = (
     "You are a topology translator. Your role is to interpret the following "
     "knowledge graph neighbourhood and surface hidden conceptual tensions, "
@@ -52,7 +54,7 @@ _SYSTEM_PREAMBLE = (
     "  🔴 BUSHWHACKING — contested or unresolved terrain (high epistemic friction)\n"
     "When Zombie Ideas are present, treat them as priority signals: they represent "
     "suppressed knowledge that the graph topology is now ready to resurrect.\n"
-    + "=" * 60 + "\n"
+    + _SEPARATOR + "\n"
 )
 
 

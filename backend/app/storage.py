@@ -694,7 +694,7 @@ class Neo4jStorage:
         )
 
 
-def get_storage() -> InMemoryGraphStore:
+def get_storage():
     """
     Storage factory.
 
