@@ -2,6 +2,8 @@ import os
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
+from dotenv import load_dotenv
+
 from .models import (
     ComprehensionContext,
     Edge,
@@ -12,6 +14,8 @@ from .models import (
     SerendipityResult,
     ZombieIdea,
 )
+
+load_dotenv()
 
 # Edge types classified by traversal friction
 HIGH_FRICTION_TYPES: Set[str] = {"CONTESTS", "REFUTES", "CRITIQUES", "ABANDONS", "SUPERSEDES"}
@@ -708,4 +712,3 @@ def get_storage():
         password = os.getenv("NEO4J_PASSWORD", "rhizome-secret")
         return Neo4jStorage(uri, user, password)  # type: ignore[return-value]
     return InMemoryGraphStore()
-

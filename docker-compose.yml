@@ -8,7 +8,7 @@ services:
       - "7474:7474"   # Neo4j Browser (HTTP)
       - "7687:7687"   # Bolt protocol
     environment:
-      NEO4J_AUTH: neo4j/rhizome-secret
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-rhizome-secret}
       # Enable APOC plugin (required for advanced graph algorithms)
       NEO4J_PLUGINS: '["apoc"]'
       # Enable vector index support (Neo4j 5.11+)

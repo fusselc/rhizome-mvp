@@ -7,24 +7,34 @@
 
 ## 🚀 Quickstart (Local Development)
 
-**Step 1: Start the Database**
+**Step 1: Setup Environment**
 ```bash
-docker compose up -d
+cp .env.example .env
 ```
 
-**Step 2: Apply the Schema**
+**Step 2: Install Dependencies**
 ```bash
-cat schema.cypher | docker exec -i rhizome-neo4j cypher-shell -u neo4j -p rhizome-secret
+python -m venv venv && source venv/bin/activate && pip install -r backend/requirements.txt
 ```
 
-**Step 3: Seed the Graph**
+**Step 3: Start the Database**
+```bash
+docker compose up -d neo4j
+```
+
+**Step 4: Apply the Schema**
+```bash
+source .env && cat schema.cypher | docker exec -i rhizome-neo4j cypher-shell -u "$NEO4J_USER" -p "$NEO4J_PASSWORD"
+```
+
+**Step 5: Seed the Graph**
 ```bash
 python scripts/seed_many_worlds.py
 ```
 
-**Step 4: Launch the Engine**
+**Step 6: Launch the Engine**
 ```bash
-uvicorn backend.app.main:app --reload
+uvicorn app.main:app --reload --app-dir backend --env-file .env
 ```
 
 ---
