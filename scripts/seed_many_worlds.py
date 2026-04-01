@@ -2,68 +2,49 @@
 """
 scripts/seed_many_worlds.py
 
-Populates the Rhizome graph with the canonical Everett 1957 → DeWitt 1970
-Many-Worlds Interpretation arc, including supporting nodes for the full
-intellectual lineage from 1925 to 2025.
+Async script that ingests the canonical Everett 1957 → DeWitt 1970
+Many-Worlds Interpretation arc directly into the Neo4j database using
+the project's Pydantic models (NodeCreate / EdgeCreate).
 
-Usage (with the backend running on localhost:8000):
-    python scripts/seed_many_worlds.py [--base-url http://localhost:8000]
+Usage:
+    python scripts/seed_many_worlds.py
 
-The script is idempotent — nodes that already exist are skipped.
+Environment variables (with defaults):
+    NEO4J_URI      bolt://localhost:7687
+    NEO4J_USER     neo4j
+    NEO4J_PASSWORD rhizome-secret
+
+The script is idempotent — nodes and edges are upserted via MERGE so
+re-running it is safe.
 """
 
-import argparse
+import asyncio
+import json
+import os
 import sys
 
 try:
-    import httpx
+    from neo4j import AsyncGraphDatabase
 except ImportError:
-    sys.exit("httpx is required: pip install httpx")
+    sys.exit("neo4j driver is required: pip install neo4j>=5.20")
 
-BASE_URL = "http://localhost:8000"
+# Allow running from the repo root or from the scripts/ directory
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+try:
+    from app.models import EdgeCreate, NodeCreate
+except ModuleNotFoundError:
+    sys.exit(
+        "Could not import app.models. Run this script from the repo root:\n"
+        "  python scripts/seed_many_worlds.py"
+    )
+
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "rhizome-secret")
 
 # ── Node definitions ──────────────────────────────────────────────────────────
-NODES = [
-    {
-        "id": "heisenberg1925",
-        "title": "Matrix Mechanics (Heisenberg 1925)",
-        "year": 1925,
-        "authors": ["Werner Heisenberg"],
-        "summary": "First complete formulation of quantum mechanics using matrix algebra.",
-        "tier": 1,
-        "method_flavor": "Axiomatic",
-        "raw_quote": "The present paper seeks to establish a basis for theoretical quantum mechanics founded exclusively upon relationships between quantities which in principle are observable.",
-        "provenance": "Heisenberg, W. (1925). Über quantentheoretische Umdeutung kinematischer und mechanischer Beziehungen. Z. Phys. 33, 879–893.",
-    },
-    {
-        "id": "schrodinger1926",
-        "title": "Wave Mechanics (Schrödinger 1926)",
-        "year": 1926,
-        "authors": ["Erwin Schrödinger"],
-        "summary": "Wave equation formulation of quantum mechanics; equivalent to matrix mechanics.",
-        "tier": 1,
-        "method_flavor": "Phenomenological",
-        "raw_quote": "I have lately shown that the familiar quantum conditions can be replaced by another postulate.",
-        "provenance": "Schrödinger, E. (1926). Quantisierung als Eigenwertproblem. Ann. Phys. 79, 361.",
-    },
-    {
-        "id": "bohr_copenhagen",
-        "title": "Copenhagen Interpretation (Bohr)",
-        "year": 1928,
-        "authors": ["Niels Bohr"],
-        "summary": "Measurement-centric interpretation emphasizing classical description.",
-        "tier": 1,
-        "method_flavor": "Phenomenological",
-    },
-    {
-        "id": "vonneumann1932",
-        "title": "Von Neumann Measurement Theory (1932)",
-        "year": 1932,
-        "authors": ["John von Neumann"],
-        "summary": "Formalises wavefunction collapse as a projection postulate.",
-        "tier": 1,
-        "method_flavor": "Axiomatic",
-    },
+_RAW_NODES = [
     {
         "id": "everett1957",
         "title": "Relative State Formulation (Everett 1957)",
@@ -76,6 +57,15 @@ NODES = [
         "provenance": "Everett, H. (1957). 'Relative State' Formulation of Quantum Mechanics. Reviews of Modern Physics, 29(3), 454–462.",
     },
     {
+        "id": "bohr_copenhagen",
+        "title": "Copenhagen Interpretation (Bohr)",
+        "year": 1928,
+        "authors": ["Niels Bohr"],
+        "summary": "Measurement-centric interpretation emphasizing classical description.",
+        "tier": 1,
+        "method_flavor": "Phenomenological",
+    },
+    {
         "id": "dewitt1970",
         "title": "Many-Worlds Revival (DeWitt 1970)",
         "year": 1970,
@@ -84,7 +74,7 @@ NODES = [
         "tier": 1,
         "method_flavor": "Axiomatic",
         "raw_quote": "The universe is constantly splitting into a stupendous number of branches.",
-        "provenance": "DeWitt, B. S. (1970). Quantum Mechanics and Reality. Physics Today, 23(9), 30–35.",
+        "provenance": "DeWitt, B. S. (1970). Quantum Mechanics and Reality. Physics Today, 23(9), 30-35.",
     },
     {
         "id": "bell1964",
@@ -105,24 +95,6 @@ NODES = [
         "method_flavor": "Axiomatic",
     },
     {
-        "id": "deutsch1985",
-        "title": "Quantum Computation (Deutsch 1985)",
-        "year": 1985,
-        "authors": ["David Deutsch"],
-        "summary": "Proposes quantum Turing machine using MWI as foundational justification.",
-        "tier": 1,
-        "method_flavor": "Axiomatic",
-    },
-    {
-        "id": "zurek2003",
-        "title": "Quantum Darwinism (Zurek 2003)",
-        "year": 2003,
-        "authors": ["Wojciech Zurek"],
-        "summary": "Explains how classical reality emerges from quantum redundancy in environments.",
-        "tier": 2,
-        "method_flavor": "Axiomatic",
-    },
-    {
         "id": "qbism",
         "title": "QBism",
         "year": 2010,
@@ -131,84 +103,123 @@ NODES = [
         "tier": 2,
         "method_flavor": "Phenomenological",
     },
-    {
-        "id": "rovelli_rqm",
-        "title": "Relational Quantum Mechanics (Rovelli 1996)",
-        "year": 1996,
-        "authors": ["Carlo Rovelli"],
-        "summary": "Quantum states are relative to observers; no collapse, no many worlds.",
-        "tier": 2,
-        "method_flavor": "Phenomenological",
-    },
 ]
 
 # ── Edge definitions ──────────────────────────────────────────────────────────
-EDGES = [
-    # Founding arc
-    {"type": "PROPOSES",  "from_id": "heisenberg1925", "to_id": "schrodinger1926",  "timestamp": 1926, "rationale": "Wave mechanics developed as alternative to matrix mechanics."},
-    {"type": "PROPOSES",  "from_id": "schrodinger1926", "to_id": "bohr_copenhagen", "timestamp": 1928, "rationale": "Copenhagen crystallises from the two formalisms."},
-    {"type": "REFINES",   "from_id": "vonneumann1932",  "to_id": "bohr_copenhagen", "timestamp": 1932, "rationale": "Von Neumann formalises collapse within the Copenhagen framework."},
-
-    # Everett arc — the core zombie resurrection
-    {"type": "CONTESTS",  "from_id": "everett1957",    "to_id": "bohr_copenhagen", "timestamp": 1957, "rationale": "Everett eliminates collapse; directly contests Copenhagen measurement axiom."},
-    {"type": "CONTESTS",  "from_id": "everett1957",    "to_id": "vonneumann1932",  "timestamp": 1957, "rationale": "Relative-state formulation bypasses the projection postulate."},
-    # 13-year dormancy → resurrection by DeWitt
-    {"type": "RESURRECTS","from_id": "dewitt1970",     "to_id": "everett1957",     "timestamp": 1970, "rationale": "DeWitt coins 'many-worlds' and propels Everett's fringe thesis into mainstream."},
-
-    # Decoherence thread
-    {"type": "REFINES",   "from_id": "decoherence",    "to_id": "everett1957",     "timestamp": 1970, "rationale": "Decoherence grounds branch-selection without collapse."},
-    {"type": "REFINES",   "from_id": "zurek2003",       "to_id": "decoherence",     "timestamp": 2003, "rationale": "Quantum Darwinism extends decoherence to explain classical objectivity."},
-
-    # Bell & computation
-    {"type": "EXTENDS",   "from_id": "bell1964",        "to_id": "bohr_copenhagen", "timestamp": 1964, "rationale": "Bell sharpens nonlocality/realism tensions within Copenhagen."},
-    {"type": "RESONATES_WITH", "from_id": "deutsch1985","to_id": "everett1957",     "timestamp": 1985, "rationale": "Deutsch grounds quantum computation in MWI parallel worlds."},
-
-    # Rival interpretations contesting MWI
-    {"type": "CONTESTS",  "from_id": "qbism",           "to_id": "everett1957",     "timestamp": 2010, "rationale": "QBism rejects ontic multiverse; states are epistemic."},
-    {"type": "CONTESTS",  "from_id": "rovelli_rqm",     "to_id": "everett1957",     "timestamp": 1996, "rationale": "RQM achieves observer-relativity without branching universes."},
-    {"type": "RESONATES_WITH", "from_id": "rovelli_rqm","to_id": "everett1957",     "timestamp": 1996, "rationale": "Both treat quantum states as relative; different ontologies."},
+_RAW_EDGES = [
+    {
+        "type": "CONTESTS",
+        "from_id": "everett1957",
+        "to_id": "bohr_copenhagen",
+        "timestamp": 1957,
+        "rationale": "Everett eliminates collapse; directly contests Copenhagen measurement axiom.",
+        "source_flavor": "Axiomatic",
+        "target_flavor": "Phenomenological",
+    },
+    {
+        "type": "RESURRECTS",
+        "from_id": "dewitt1970",
+        "to_id": "everett1957",
+        "timestamp": 1970,
+        "rationale": "DeWitt coins 'many-worlds' and propels Everett's fringe thesis into mainstream.",
+        "source_flavor": "Axiomatic",
+        "target_flavor": "Axiomatic",
+    },
+    {
+        "type": "REFINES",
+        "from_id": "decoherence",
+        "to_id": "everett1957",
+        "timestamp": 1970,
+        "rationale": "Decoherence grounds branch-selection without collapse.",
+        "source_flavor": "Axiomatic",
+        "target_flavor": "Axiomatic",
+    },
+    {
+        "type": "EXTENDS",
+        "from_id": "bell1964",
+        "to_id": "bohr_copenhagen",
+        "timestamp": 1964,
+        "rationale": "Bell sharpens nonlocality/realism tensions within Copenhagen.",
+        "source_flavor": "Axiomatic",
+        "target_flavor": "Phenomenological",
+    },
+    {
+        "type": "CONTESTS",
+        "from_id": "qbism",
+        "to_id": "everett1957",
+        "timestamp": 2010,
+        "rationale": "QBism rejects ontic multiverse; states are epistemic.",
+        "source_flavor": "Phenomenological",
+        "target_flavor": "Axiomatic",
+    },
 ]
 
 
-def post(client: "httpx.Client", path: str, payload: dict) -> dict | None:
-    r = client.post(path, json=payload)
-    if r.status_code in (200, 201):
-        return r.json()
-    if r.status_code == 400 and "already exists" in r.text:
-        print(f"  ↩  SKIP (already exists): {payload.get('id', payload.get('from_id','?'))}")
-        return None
-    print(f"  ✗  ERROR {r.status_code}: {r.text}")
-    return None
+async def seed(driver) -> None:
+    print("\n🌿 Project Rhizome — async Neo4j seed script")
+    print(f"   Target: {NEO4J_URI}\n")
 
+    # Validate models first (raises on bad data)
+    nodes = [NodeCreate(**raw) for raw in _RAW_NODES]
+    edges = [EdgeCreate(**raw) for raw in _RAW_EDGES]
 
-def main(base_url: str) -> None:
-    print(f"\n🌿 Project Rhizome — MWI seed script\n   Target: {base_url}\n")
-
-    with httpx.Client(base_url=base_url, timeout=15.0) as client:
-        # Health check
-        try:
-            r = client.get("/health")
-            r.raise_for_status()
-        except Exception as exc:
-            sys.exit(f"✗ Backend not reachable at {base_url}: {exc}")
-
+    async with driver.session() as session:
         print("── Nodes ──────────────────────────────────────────────────")
-        for node in NODES:
-            result = post(client, "/graph/nodes", node)
-            if result:
-                print(f"  ✓ {result['id']}  [{result.get('method_flavor', '—')}]")
+        for node in nodes:
+            data = node.model_dump()
+            data["authors"] = json.dumps(data["authors"])
+            data["credibility_history"] = json.dumps(data["credibility_history"])
+            await session.run(
+                """
+                MERGE (i:Idea {id: $id})
+                ON CREATE SET
+                    i.title               = $title,
+                    i.year                = $year,
+                    i.authors             = $authors,
+                    i.summary             = $summary,
+                    i.tier                = $tier,
+                    i.raw_quote           = $raw_quote,
+                    i.provenance          = $provenance,
+                    i.source_hash         = $source_hash,
+                    i.method_flavor       = $method_flavor,
+                    i.credibility_history = $credibility_history
+                """,
+                **data,
+            )
+            print(f"  ✓ {node.id}  [{node.method_flavor or '-'}]")
 
         print("\n── Edges ──────────────────────────────────────────────────")
-        for edge in EDGES:
-            result = post(client, "/graph/edges", edge)
-            if result:
-                print(f"  ✓ {edge['from_id']} --[{edge['type']}]--> {edge['to_id']}")
+        for edge in edges:
+            await session.run(
+                """
+                MATCH (a:Idea {id: $from_id}), (b:Idea {id: $to_id})
+                MERGE (a)-[r:EDGE {from_id: $from_id, to_id: $to_id,
+                                   type: $type, timestamp: $timestamp}]->(b)
+                ON CREATE SET
+                    r.rationale           = $rationale,
+                    r.tension             = $tension,
+                    r.method_flavor_delta = $method_flavor_delta
+                """,
+                from_id=edge.from_id,
+                to_id=edge.to_id,
+                type=edge.type.value,
+                timestamp=edge.timestamp,
+                rationale=edge.rationale,
+                tension=edge.tension,
+                method_flavor_delta=edge.method_flavor_delta,
+            )
+            print(f"  ✓ {edge.from_id} --[{edge.type.value}]--> {edge.to_id}")
 
     print("\n✅ Seed complete.\n")
 
 
+async def main() -> None:
+    driver = AsyncGraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    try:
+        await seed(driver)
+    finally:
+        await driver.close()
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Seed the Rhizome MWI graph.")
-    parser.add_argument("--base-url", default=BASE_URL, help="Backend base URL")
-    args = parser.parse_args()
-    main(args.base_url)
+    asyncio.run(main())
