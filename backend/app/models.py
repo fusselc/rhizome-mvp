@@ -38,6 +38,13 @@ METHOD_FLAVOR_VALUES: Dict[str, float] = {
     "Phenomenological": -1.0,
 }
 
+# Tension bonus keyed by frozenset of method flavor pairs.
+# Cross-paradigm edges carry additional epistemic friction.
+# Same-flavor pairs carry no bonus (default 0.0 from .get() fallback).
+FLAVOR_PAIR_TENSION_BONUS: Dict[frozenset, float] = {
+    frozenset({"Axiomatic", "Phenomenological"}): 0.15,
+}
+
 
 class NodeCreate(BaseModel):
     """
@@ -93,6 +100,11 @@ class Node(NodeCreate):
     pass
 
 
+# Alias: Idea is the canonical domain term for a Node
+Idea = Node
+IdeaCreate = NodeCreate
+
+
 class EdgeCreate(BaseModel):
     """
     Schema for creating a graph edge.
@@ -100,6 +112,9 @@ class EdgeCreate(BaseModel):
     tension is auto-computed from the edge type if not explicitly provided.
     method_flavor_delta captures the methodological distance between the two
     endpoint nodes and is populated by the storage layer.
+
+    When source_flavor and target_flavor are provided, method_flavor_delta is
+    computed using a frozenset-keyed lookup so that order does not matter.
     """
 
     type: EdgeType
@@ -117,16 +132,40 @@ class EdgeCreate(BaseModel):
         default=None,
         description="Absolute methodological distance between source and target nodes",
     )
+    # Optional flavor fields; when supplied the model computes method_flavor_delta
+    source_flavor: Optional[str] = Field(
+        default=None,
+        description="Method flavor of the source node (used for delta computation)",
+        exclude=True,
+    )
+    target_flavor: Optional[str] = Field(
+        default=None,
+        description="Method flavor of the target node (used for delta computation)",
+        exclude=True,
+    )
 
     @model_validator(mode="after")
     def _compute_tension(self) -> "EdgeCreate":
+        # Compute method_flavor_delta using frozensets when flavor pair is available
+        if self.method_flavor_delta is None and self.source_flavor and self.target_flavor:
+            from_val = METHOD_FLAVOR_VALUES.get(self.source_flavor, 0.0)
+            to_val = METHOD_FLAVOR_VALUES.get(self.target_flavor, 0.0)
+            self.method_flavor_delta = abs(from_val - to_val)
+
         # Auto-set tension from edge type when the caller did not supply a value.
         # We use None as the sentinel (not 0.0) so that explicitly-set 0.0 tensions
         # on perfectly smooth edges are preserved.
         # Use .value for explicit enum→string conversion (avoids Python 3.11+
         # str(StrEnum) returning "EnumName.VALUE" instead of the bare value).
         if self.tension is None:
-            self.tension = EDGE_TENSION_DEFAULTS.get(self.type.value, 0.5)
+            base = EDGE_TENSION_DEFAULTS.get(self.type.value, 0.5)
+            # Apply bonus friction for cross-paradigm edges using frozenset lookup
+            if self.source_flavor and self.target_flavor:
+                flavor_key = frozenset({self.source_flavor, self.target_flavor})
+                bonus = FLAVOR_PAIR_TENSION_BONUS.get(flavor_key, 0.0)
+                self.tension = min(1.0, base + bonus)
+            else:
+                self.tension = base
         return self
 
 

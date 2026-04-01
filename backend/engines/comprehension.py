@@ -1,12 +1,13 @@
 """
 Engine 3 — Topology-as-Prompt (comprehension.py)
 
-Converts local graph topology into a dense, LLM-readable context string.
+Converts local graph topology into a dense, LLM-ready prompt string.
 The function mirrors what would be executed as a Cypher variable-length path
 query against Neo4j:
 
     MATCH p = (center:Idea {id: $node_id})-[*1..$depth]-(neighbor:Idea)
-    RETURN p
+    UNWIND relationships(p) AS edge
+    RETURN ... ORDER BY tension DESC
 
 Edge friction is classified and labelled so the LLM can immediately
 understand the epistemic texture of the neighbourhood:
@@ -42,18 +43,37 @@ except ModuleNotFoundError:
     )
     from backend.app.storage import _build_comprehension_paths  # type: ignore[no-redef]
 
+_SEPARATOR = "=" * 60
+
+_SYSTEM_PREAMBLE = (
+    "You are a topology translator. Your role is to interpret the following "
+    "knowledge graph neighbourhood and surface hidden conceptual tensions, "
+    "unexpected resonances, and dormant ideas that deserve revival. "
+    "Read each edge friction label carefully:\n"
+    "  🟢 PAVED PATH   — well-trodden conceptual ground (low epistemic friction)\n"
+    "  🔴 BUSHWHACKING — contested or unresolved terrain (high epistemic friction)\n"
+    "When Zombie Ideas are present, treat them as priority signals: they represent "
+    "suppressed knowledge that the graph topology is now ready to resurrect.\n"
+    + _SEPARATOR + "\n"
+)
+
 
 async def get_llm_comprehension_context(
     node_id: str,
     nodes: Dict[str, Node],
     edges: List[Edge],
     depth: int = 2,
+    zombie_ideas: List[ZombieIdea] | None = None,
 ) -> ComprehensionContext:
     """
     Async Topology-as-Prompt builder.
 
     Accepts the graph data (nodes dict + edges list) so it works with both
     the in-memory store and a Neo4j result set without modification.
+
+    Injects a system preamble ("You are a topology translator…") and appends
+    any detected Zombie Ideas so the final string is ready to paste into an
+    LLM prompt.
 
     Parameters
     ----------
@@ -65,12 +85,14 @@ async def get_llm_comprehension_context(
         All edges in the store.
     depth : int
         Maximum traversal depth (mirrors $depth in the Cypher query).
+    zombie_ideas : List[ZombieIdea] | None
+        Optional pre-detected zombie ideas to append to the context.
 
     Returns
     -------
     ComprehensionContext
-        A structured context object whose `.context` field is the dense
-        topology string ready to paste into any LLM prompt.
+        A structured context object whose `.context` field is the complete
+        topology prompt ready to paste into any LLM.
     """
     await asyncio.sleep(0)  # yield control — keeps the interface truly async
 
@@ -80,18 +102,32 @@ async def get_llm_comprehension_context(
     center = nodes[node_id]
     paths = _build_comprehension_paths(node_id=node_id, nodes=nodes, edges=edges, depth=depth)
 
-    header = (
+    graph_header = (
         f"GRAPH CONTEXT for '{center.title}' (ID: {node_id})\n"
         f"Method Flavor : {center.method_flavor or 'Unclassified'}\n"
         f"Depth         : {depth}\n"
         f"{'=' * 60}\n"
     )
-    body = "\n".join(paths) if paths else "No connections found at this depth."
+    graph_body = "\n".join(paths) if paths else "No connections found at this depth."
+
+    # Build zombie section when zombies are detected
+    zombie_section = ""
+    if zombie_ideas:
+        zombie_lines = ["\n" + "=" * 60, "⚠ ZOMBIE IDEAS DETECTED — PRIORITY REVIVAL SIGNALS:"]
+        for z in zombie_ideas:
+            reviver = f"  (revived by: {z.resurrected_by})" if z.resurrected_by else ""
+            zombie_lines.append(
+                f"  💀 {z.title} — dormant {z.dormant_years} years "
+                f"(Tier {z.fringe_tier}){reviver}"
+            )
+        zombie_section = "\n".join(zombie_lines)
+
+    full_prompt = _SYSTEM_PREAMBLE + graph_header + graph_body + zombie_section
 
     return ComprehensionContext(
         node_id=node_id,
         depth=depth,
-        context=header + body,
+        context=full_prompt,
     )
 
 

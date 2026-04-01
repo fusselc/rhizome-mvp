@@ -1,9 +1,10 @@
 """
 Graph router — Engine 1 (Ontological) + Engine 4 (Discovery) endpoints.
 
-All endpoints use the shared InMemoryGraphStore seeded with the MWI pilot
-domain.  In production, swap InMemoryGraphStore for Neo4jGraphStore.
+All endpoints are async and support both the InMemoryGraphStore (used in
+tests / local dev) and Neo4jStorage (used in production when NEO4J_URI is set).
 """
+import inspect
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query
@@ -19,50 +20,60 @@ from ..models import (
     SerendipityResult,
     ZombieIdea,
 )
-from ..storage import InMemoryGraphStore
+from ..storage import get_storage
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
 # Module-level singleton — seeded once on first import
-_store = InMemoryGraphStore()
+_store = get_storage()
+
+
+async def _call(method, *args, **kwargs):
+    """Invoke a storage method whether it is sync or async."""
+    result = method(*args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 
 # ── Snapshot ────────────────────────────────────────────────────────────────
 
 @router.get("/snapshot", response_model=GraphSnapshot)
-def get_snapshot(
+async def get_snapshot(
     year: int = Query(..., description="Return all nodes and edges up to this year"),
 ) -> GraphSnapshot:
     """Time-lapse snapshot: every node born ≤ year and every edge ≤ year."""
-    nodes, edges = _store.snapshot(year=year)
+    nodes, edges = await _call(_store.snapshot, year=year)
     return GraphSnapshot(nodes=nodes, edges=edges, year=year)
 
 
 # ── Node CRUD ────────────────────────────────────────────────────────────────
 
 @router.post("/nodes", response_model=Node, status_code=201)
-def create_node(payload: NodeCreate) -> Node:
+@router.post("/ideas", response_model=Node, status_code=201, include_in_schema=True)
+async def create_node(payload: NodeCreate) -> Node:
     try:
-        return _store.create_node(payload)
+        return await _call(_store.create_node, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/nodes/{node_id}", response_model=Node)
-def get_node(node_id: str) -> Node:
+@router.get("/ideas/{node_id}", response_model=Node, include_in_schema=True)
+async def get_node(node_id: str) -> Node:
     try:
-        return _store.get_node(node_id)
+        return await _call(_store.get_node, node_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/nodes/{node_id}/neighborhood", response_model=NeighborhoodResponse)
-def get_neighborhood(
+async def get_neighborhood(
     node_id: str,
     year: int = Query(..., description="Snapshot year"),
 ) -> NeighborhoodResponse:
     try:
-        center, nodes, edges = _store.neighborhood(node_id=node_id, year=year)
+        center, nodes, edges = await _call(_store.neighborhood, node_id=node_id, year=year)
         return NeighborhoodResponse(center=center, nodes=nodes, edges=edges)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -71,9 +82,9 @@ def get_neighborhood(
 # ── Edge CRUD ────────────────────────────────────────────────────────────────
 
 @router.post("/edges", response_model=Edge, status_code=201)
-def create_edge(payload: EdgeCreate) -> Edge:
+async def create_edge(payload: EdgeCreate) -> Edge:
     try:
-        return _store.create_edge(payload)
+        return await _call(_store.create_edge, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -81,7 +92,7 @@ def create_edge(payload: EdgeCreate) -> Edge:
 # ── Engine 3: Topology-as-Prompt ─────────────────────────────────────────────
 
 @router.get("/comprehension/{node_id}", response_model=ComprehensionContext)
-def get_comprehension(
+async def get_comprehension(
     node_id: str,
     depth: int = Query(default=2, ge=1, le=5, description="Traversal depth"),
 ) -> ComprehensionContext:
@@ -91,10 +102,11 @@ def get_comprehension(
 
     The in-memory implementation mirrors this Cypher (used with Neo4j):
         MATCH p = (center:Idea {id: $node_id})-[*1..$depth]-(neighbor:Idea)
-        RETURN p
+        UNWIND relationships(p) AS edge
+        RETURN ... ORDER BY tension DESC
     """
     try:
-        return _store.get_llm_comprehension_context(node_id=node_id, depth=depth)
+        return await _call(_store.get_llm_comprehension_context, node_id=node_id, depth=depth)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -102,7 +114,7 @@ def get_comprehension(
 # ── Engine 4: Discovery & Justice ────────────────────────────────────────────
 
 @router.get("/zombies", response_model=List[ZombieIdea])
-def get_zombie_ideas(
+async def get_zombie_ideas(
     dormancy_threshold: int = Query(
         default=10,
         ge=1,
@@ -115,11 +127,11 @@ def get_zombie_ideas(
     Returns ideas that lay dormant (low tier, no RESURRECTS edge) for at
     least dormancy_threshold years before being revived.
     """
-    return _store.detect_zombie_ideas(dormancy_threshold=dormancy_threshold)
+    return await _call(_store.detect_zombie_ideas, dormancy_threshold=dormancy_threshold)
 
 
 @router.get("/serendipity/{node_id}", response_model=SerendipityResult)
-def run_serendipity_walk(
+async def run_serendipity_walk(
     node_id: str,
     max_steps: int = Query(default=4, ge=1, le=10),
 ) -> SerendipityResult:
@@ -130,7 +142,7 @@ def run_serendipity_walk(
     edges to surface non-obvious Conceptual Neighbours.
     """
     try:
-        result = _store.serendipity_walk(node_id=node_id, max_steps=max_steps)
+        result = await _call(_store.serendipity_walk, node_id=node_id, max_steps=max_steps)
         if result is None:
             raise HTTPException(
                 status_code=404,
