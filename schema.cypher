@@ -44,7 +44,7 @@ CREATE VECTOR INDEX idea_embedding IF NOT EXISTS
   FOR (i:Idea) ON (i.embedding)
   OPTIONS {
     indexConfig: {
-      `vector.dimensions`: 1536,
+      `vector.dimensions`: 384,
       `vector.similarity_function`: 'cosine'
     }
   };
