@@ -5,6 +5,30 @@
 
 ---
 
+## 🚀 Quickstart (Local Development)
+
+**Step 1: Start the Database**
+```bash
+docker compose up -d
+```
+
+**Step 2: Apply the Schema**
+```bash
+cat schema.cypher | docker exec -i rhizome-neo4j cypher-shell -u neo4j -p rhizome-secret
+```
+
+**Step 3: Seed the Graph**
+```bash
+python scripts/seed_many_worlds.py
+```
+
+**Step 4: Launch the Engine**
+```bash
+uvicorn backend.app.main:app --reload
+```
+
+---
+
 ## Strategic Mandate
 
 Project Rhizome is an epistemological intervention against information flattening.
