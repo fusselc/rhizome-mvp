@@ -1,5 +1,6 @@
 import os
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -11,6 +12,8 @@ router = APIRouter(prefix="/api/edges", tags=["edges"])
 # Simple in-memory fallback for MVP mode.
 # Stores relationship records keyed by (source_namespace, source_id, target_namespace, target_id, type)
 _IN_MEMORY_RELATIONSHIPS: Dict[tuple[str, str, str, str, str], Dict[str, Any]] = {}
+
+_TYPE_SANITIZER = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 class RelationshipCreate(BaseModel):
@@ -34,6 +37,20 @@ async def create_relationship(payload: RelationshipCreate):
         try:
             from neo4j import AsyncGraphDatabase
 
+            sanitized_type = payload.type.upper()
+            if not _TYPE_SANITIZER.fullmatch(sanitized_type):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid relationship type. Use only letters, numbers, and underscores.",
+                )
+
+            query = (
+                f"MATCH (source:ConceptNode {{namespace: $source_namespace, conceptId: $source_id}}), "
+                f"(target:ConceptNode {{namespace: $target_namespace, conceptId: $target_id}}) "
+                f"MERGE (source)-[r:{sanitized_type}]->(target) "
+                f"ON CREATE SET r = $properties RETURN r"
+            )
+
             driver = AsyncGraphDatabase.driver(
                 neo4j_uri,
                 auth=(neo4j_user, neo4j_password),
@@ -41,18 +58,11 @@ async def create_relationship(payload: RelationshipCreate):
             try:
                 async with driver.session() as session:
                     result = await session.run(
-                        """
-                        MATCH (source:ConceptNode {namespace: $source_namespace, conceptId: $source_id})
-                        MATCH (target:ConceptNode {namespace: $target_namespace, conceptId: $target_id})
-                        MERGE (source)-[r:RELATIONSHIP {type: $type}]->(target)
-                        SET r += $properties
-                        RETURN source, target, r
-                        """,
+                        query,
                         source_namespace=payload.source_namespace,
                         source_id=payload.source_id,
                         target_namespace=payload.target_namespace,
                         target_id=payload.target_id,
-                        type=payload.type,
                         properties=payload.properties,
                     )
                     record = await result.single()
@@ -75,6 +85,8 @@ async def create_relationship(payload: RelationshipCreate):
                 ) from exc
             finally:
                 await driver.close()
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
